@@ -7,6 +7,7 @@
 #include "py/repl.h"
 #include "py/gc.h"
 #include "py/mperrno.h"
+#include "py/mphal.h"
 #include "lib/utils/pyexec.h"
 
 #if MICROPY_ENABLE_COMPILER
@@ -29,6 +30,11 @@ void do_str(const char *src, mp_parse_input_kind_t input_kind) {
 static char *stack_top;
 static char heap[2048];
 
+void main_loop(void) {
+		int c = mp_hal_stdin_rx_chr();
+		pyexec_event_repl_process_char(c);
+}
+
 int main(int argc, char **argv) {
     int stack_dummy;
     stack_top = (char*)&stack_dummy;
@@ -40,12 +46,17 @@ int main(int argc, char **argv) {
     #if MICROPY_ENABLE_COMPILER
     #if MICROPY_REPL_EVENT_DRIVEN
     pyexec_event_repl_init();
+#ifdef __EMSCRIPTEN__
+		// void emscripten_set_main_loop(em_callback_func func, int fps, int simulate_infinite_loop);
+		emscripten_set_main_loop(main_loop, 30, 1);
+#else
     for (;;) {
         int c = mp_hal_stdin_rx_chr();
         if (pyexec_event_repl_process_char(c)) {
             break;
         }
     }
+#endif
     #else
     pyexec_friendly_repl();
     #endif

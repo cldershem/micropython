@@ -369,6 +369,99 @@ raw_repl_reset:
     }
 }
 
+int repl_tick(void) {
+    vstr_t line;
+    vstr_init(&line, 32);
+
+		#if MICROPY_HW_ENABLE_USB
+		if (usb_vcp_is_enabled()) {
+				// If the user gets to here and interrupts are disabled then
+				// they'll never see the prompt, traceback etc. The USB REPL needs
+				// interrupts to be enabled or no transfers occur. So we try to
+				// do the user a favor and reenable interrupts.
+				if (query_irq() == IRQ_STATE_DISABLED) {
+						enable_irq(IRQ_STATE_ENABLED);
+						mp_hal_stdout_tx_str("PYB: enabling IRQs\r\n");
+				}
+		}
+		#endif
+
+		vstr_reset(&line);
+		int ret = readline(&line, ">>> ");
+		mp_parse_input_kind_t parse_input_kind = MP_PARSE_SINGLE_INPUT;
+
+		if (ret == CHAR_CTRL_A) {
+				// change to raw REPL
+				mp_hal_stdout_tx_str("\r\n");
+				vstr_clear(&line);
+				pyexec_mode_kind = PYEXEC_MODE_RAW_REPL;
+				return 0;
+		} else if (ret == CHAR_CTRL_B) {
+				// reset friendly REPL
+				mp_hal_stdout_tx_str("\r\n");
+				return 0;
+		} else if (ret == CHAR_CTRL_C) {
+				// break
+				mp_hal_stdout_tx_str("\r\n");
+				return 0;
+		} else if (ret == CHAR_CTRL_D) {
+				// exit for a soft reset
+				mp_hal_stdout_tx_str("\r\n");
+				vstr_clear(&line);
+				return PYEXEC_FORCED_EXIT;
+		} else if (ret == CHAR_CTRL_E) {
+				// paste mode
+				mp_hal_stdout_tx_str("\r\npaste mode; Ctrl-C to cancel, Ctrl-D to finish\r\n=== ");
+				vstr_reset(&line);
+				for (;;) {
+						char c = mp_hal_stdin_rx_chr();
+						if (c == CHAR_CTRL_C) {
+								// cancel everything
+								mp_hal_stdout_tx_str("\r\n");
+								return 0;
+						} else if (c == CHAR_CTRL_D) {
+								// end of input
+								mp_hal_stdout_tx_str("\r\n");
+								break;
+						} else {
+								// add char to buffer and echo
+								vstr_add_byte(&line, c);
+								if (c == '\r') {
+										mp_hal_stdout_tx_str("\r\n=== ");
+								} else {
+										mp_hal_stdout_tx_strn(&c, 1);
+								}
+						}
+				}
+				parse_input_kind = MP_PARSE_FILE_INPUT;
+		} else if (vstr_len(&line) == 0) {
+				return 0;
+		} else {
+				// got a line with non-zero length, see if it needs continuing
+				while (mp_repl_continue_with_input(vstr_null_terminated_str(&line))) {
+						vstr_add_byte(&line, '\n');
+						ret = readline(&line, "... ");
+						if (ret == CHAR_CTRL_C) {
+								// cancel everything
+								mp_hal_stdout_tx_str("\r\n");
+								return 0;
+						} else if (ret == CHAR_CTRL_D) {
+								// stop entering compound statement
+								break;
+						}
+				}
+		}
+
+		ret = parse_compile_execute(&line, parse_input_kind, EXEC_FLAG_ALLOW_DEBUGGING | EXEC_FLAG_IS_REPL | EXEC_FLAG_SOURCE_IS_VSTR);
+		if (ret & PYEXEC_FORCED_EXIT) {
+				return ret;
+		}
+
+		return 0;
+}
+
+void emscripten_set_main_loop(int (*func)(), int, int);
+
 int pyexec_friendly_repl(void) {
     vstr_t line;
     vstr_init(&line, 32);
@@ -379,7 +472,9 @@ int pyexec_friendly_repl(void) {
     mp_call_function_1(mp_load_attr(lcd_o, qstr_from_str("light")), mp_const_true);
 #endif
 
+#ifndef __EMSCRIPTEN__
 friendly_repl_reset:
+#endif
     mp_hal_stdout_tx_str("MicroPython " MICROPY_GIT_TAG " on " MICROPY_BUILD_DATE "; " MICROPY_HW_BOARD_NAME " with " MICROPY_HW_MCU_NAME "\r\n");
     #if MICROPY_PY_BUILTINS_HELP
     mp_hal_stdout_tx_str("Type \"help()\" for more information.\r\n");
@@ -403,6 +498,10 @@ friendly_repl_reset:
     }
     */
 
+#ifdef __EMSCRIPTEN__
+		// void emscripten_set_main_loop(em_callback_func func, int fps, int simulate_infinite_loop);
+		emscripten_set_main_loop(repl_tick, 30, 1);
+#else
     for (;;) {
     input_restart:
 
@@ -490,6 +589,8 @@ friendly_repl_reset:
             return ret;
         }
     }
+#endif
+		return 0;
 }
 
 #endif // MICROPY_REPL_EVENT_DRIVEN
