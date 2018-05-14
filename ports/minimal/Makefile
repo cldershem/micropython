@@ -25,7 +25,7 @@ LDFLAGS = -nostdlib -T stm32f405.ld -Map=$@.map --cref --gc-sections
 else
 LD = emcc
 CFLAGS = -m32 $(INC) -Wall -Werror -std=c99 $(COPT)
-LDFLAGS = -m32 -Wl,-Map=$@.map,--cref -Wl,--gc-sections
+LDFLAGS = -m32 -Wl,-Map=$@.map,--cref -Wl,--gc-sections -s WASM=1
 endif
 
 # Tune for Debugging or Optimization
