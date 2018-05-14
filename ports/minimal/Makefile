@@ -41,10 +41,8 @@ LIBS =
 SRC_C = \
 	main.c \
 	uart_core.c \
-	lib/utils/printf.c \
 	lib/utils/stdout_helpers.c \
 	lib/utils/pyexec.c \
-	lib/libc/string0.c \
 	lib/mp-readline/readline.c \
 	$(BUILD)/_frozen_mpy.c \
 
